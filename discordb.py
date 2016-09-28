@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from errbot.backends.base import Person, Message, Room, RoomOccupant, Presence, ONLINE, OFFLINE, AWAY
+from errbot.backends.base import Person, Message, Room, RoomOccupant, Presence, ONLINE, OFFLINE, AWAY, DND
 from errbot.errBot import ErrBot
 import logging
 import sys
@@ -138,7 +138,6 @@ class DiscordBackend(ErrBot):
         identity = config.BOT_IDENTITY
 
         self.token = identity.get('token', None)
-        self.rooms_to_join = config.CHATROOM_PRESENCE
 
         if not self.token:
             log.fatal('You need to set a token entry in the BOT_IDENTITY setting of your configuration.')
@@ -186,6 +185,9 @@ class DiscordBackend(ErrBot):
                 return
             elif after.status == discord.Status.idle:
                 self.callback_presence(Presence(person, AWAY))
+                return
+            elif after.status == discord.Status.dnd:
+                self.callback_presence(Presence(person, DND))
                 return
         log.debug('Unrocognized member update, ignoring...')
 
