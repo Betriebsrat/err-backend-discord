@@ -10,8 +10,8 @@ import asyncio
 # Can't use __name__ because of Yapsy
 log = logging.getLogger('errbot.backends.discord')
 
-class DiscordPerson(discord.User, Person):
 
+class DiscordPerson(discord.User, Person):
     def __init__(self, username=None, id_=None, discriminator=None, avatar=None):
         super().__init__(username=username, id=id_, discriminator=discriminator, avatar=avatar)
 
@@ -34,6 +34,10 @@ class DiscordPerson(discord.User, Person):
     @property
     def client(self) -> str:
         return None
+
+    @property
+    def mention(self) -> str:
+        return discord.User.mention
 
     @staticmethod
     def from_user(user: discord.User):
@@ -79,7 +83,7 @@ class DiscordRoom(Room):
         log.error('Not implemented')
         return True
 
-    def __init__(self, name, channel: discord.Channel=None):
+    def __init__(self, name, channel: discord.Channel = None):
         self.name = name
         self.channel = channel
 
@@ -97,7 +101,7 @@ class DiscordRoom(Room):
 
 
 class DiscordRoomOccupant(DiscordPerson, RoomOccupant):
-    def __init__(self, username=None, id_=None, discriminator=None, avatar=None, room: DiscordRoom=None):
+    def __init__(self, username=None, id_=None, discriminator=None, avatar=None, room: DiscordRoom = None):
         super().__init__(username=username, id_=id_, discriminator=discriminator, avatar=avatar)
         self._room = room
 
@@ -108,7 +112,7 @@ class DiscordRoomOccupant(DiscordPerson, RoomOccupant):
     @staticmethod
     def from_user_and_channel(user: discord.User, channel: discord.Channel):
         return DiscordRoomOccupant(username=user.name,
-                                   id_ =user.id,
+                                   id_=user.id,
                                    discriminator=user.discriminator,
                                    avatar=user.avatar,
                                    room=DiscordRoom.from_channel(channel))
@@ -116,7 +120,7 @@ class DiscordRoomOccupant(DiscordPerson, RoomOccupant):
     @staticmethod
     def from_user_and_room(user: discord.User, room: DiscordRoom):
         return DiscordRoomOccupant(username=user.name,
-                                   id_ =user.id,
+                                   id_=user.id,
                                    discriminator=user.discriminator,
                                    avatar=user.avatar,
                                    room=room)
@@ -255,13 +259,21 @@ class DiscordBackend(ErrBot):
             response.to = DiscordPerson.from_user(mess.frm) if private else mess.to
         return response
 
+    @asyncio.coroutine
+    def run_bot(self):
+        yield from self.client.login(self.token)
+        yield from self.client.connect()
+
     def serve_once(self):
+        loop = asyncio.get_event_loop()
         self.connect_callback()
-        # Hehe client.run cannot be used as we need more control.
         try:
-            self.client.loop.run_until_complete(self.client.start(self.token))
+            loop.run_until_complete(self.run_bot())
+            if self.client.is_closed is False:
+                self.reset_reconnection_count()
+                log.info('Connected')
         except KeyboardInterrupt:
-            self.client.loop.run_until_complete(self.client.logout())
+            loop.run_until_complete(self.client.logout())
             pending = asyncio.Task.all_tasks()
             gathered = asyncio.gather(*pending)
             try:
@@ -274,14 +286,17 @@ class DiscordBackend(ErrBot):
             except:
                 pass
             self.disconnect_callback()
+            log.info('Received keyboardInterrupt shutting down')
             return True
+        finally:
+            loop.close()
 
-    def change_presence(self, game: str='', status: str=ONLINE) -> None:
+    def change_presence(self, game: str = '', status: str = ONLINE) -> None:
         log.debug("Change bot status to %s, game %s" % (status, game))
         self.client.change_presence(status=status, game=game)
 
     def prefix_groupchat_reply(self, message, identifier):
-        message.body = '@{0} {1}'.format(identifier.nick, message.body)
+        message.body = '@{0} {1}'.format(identifier.mention, message.body)
 
     def rooms(self):
         return [DiscordRoom(channel.name) for channel in self.client.get_all_channels()]
